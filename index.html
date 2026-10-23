@@ -3,29 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#101827">
+  <meta name="theme-color" content="#f4f7f8">
   <title>台灣停電地圖｜官方資料整合</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <style>
-    :root{color-scheme:dark;--bg:#0b1220;--panel:#131e30;--line:#2a3850;--text:#edf3fc;--muted:#a9b7cb;--accent:#57c7b6}
+    :root{color-scheme:light;--bg:#f4f7f8;--panel:#fff;--line:#e3e9ed;--text:#263640;--muted:#6d7b83;--accent:#4d8581}
     *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Noto Sans TC",sans-serif}
-    header{padding:20px clamp(16px,3vw,34px);border-bottom:1px solid var(--line);background:#101827}
+    header{padding:20px clamp(16px,3vw,34px);border-bottom:1px solid var(--line);background:#fff}
     h1{font-size:clamp(1.4rem,3vw,2rem);margin:0 0 5px}p{margin:5px 0}.muted{color:var(--muted);font-size:.9rem}
     main{max-width:1500px;margin:auto;padding:16px;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px}
-    .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-    #map{height:min(74vh,850px);min-height:440px;background:#e5e7eb}.leaflet-tile-pane img{filter:grayscale(100%) contrast(.92) brightness(1.03)}
+    .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 2px 10px rgba(37,57,67,.045)}
+    #map{height:min(74vh,850px);min-height:440px;background:#edf3f5}
     .map-top{padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
     .controls{display:flex;gap:8px;flex-wrap:wrap}
-    button,select,input{background:#1b2a40;color:var(--text);border:1px solid #3b4b63;border-radius:8px;padding:9px 11px;font:inherit}input::placeholder{color:#a9b7cb}input:focus{outline:2px solid var(--accent);outline-offset:1px}
-    button{cursor:pointer}button.active{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+    button,select,input{background:#fff;color:var(--text);border:1px solid #d8e1e5;border-radius:9px;padding:9px 11px;font:inherit}input::placeholder{color:#839098}input:focus{outline:2px solid var(--accent);outline-offset:1px}
+    button{cursor:pointer}button.active{background:#edf6f4;border-color:#77a9a3;color:#285d59}
     aside{padding:16px;display:flex;flex-direction:column;gap:14px}
-    .statgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.stat{padding:12px;border-radius:10px;background:#1a2940}
+    .statgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.stat{padding:12px;border-radius:10px;background:#f5f8f9}
     .stat strong{display:block;font-size:1.45rem}.stat span{font-size:.82rem;color:var(--muted)}
-    .status{padding:10px 12px;border-radius:9px;background:#202f45;border:1px solid #354860;font-size:.9rem}
-    .status.warn{border-color:#d69b43;color:#ffe0a6}.status.good{border-color:#3d9f88;color:#b8f5e6}
+    .status{padding:10px 12px;border-radius:9px;background:#f5f8f9;border:1px solid #e3e9ed;font-size:.9rem}
+    .status.warn{background:#fff8e9;border-color:#ecd59e;color:#765a20}.status.good{background:#eef8f4;border-color:#bbded1;color:#386b5a}
     .legend{display:grid;gap:8px;font-size:.9rem}.dot{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:7px}
     #event-search{width:100%;margin:0 0 9px;background:#f5f6f7;color:#26313d;border-color:#cbd1d8}#event-search::placeholder{color:#687583}#events{display:grid;gap:8px;max-height:42vh;overflow:auto}.event{padding:10px;border:1px solid var(--line);border-radius:9px;font-size:.9rem}#location-status{padding:8px 14px;color:var(--muted);font-size:.85rem;border-bottom:1px solid var(--line)}.event strong{display:block;margin-bottom:3px}
-    .source a{color:#90d9ff}.source{font-size:.86rem;color:var(--muted)}footer{padding:0 16px 22px;max-width:1500px;margin:auto;color:var(--muted);font-size:.82rem}
+    .source a{color:#397875}.source{font-size:.86rem;color:var(--muted)}footer{padding:0 16px 22px;max-width:1500px;margin:auto;color:var(--muted);font-size:.82rem}
     @media(max-width:900px){main{grid-template-columns:1fr}#map{height:60vh;min-height:380px}#events{max-height:34vh}}
   </style>
 </head>
@@ -60,9 +60,9 @@
     <div>
       <h2 style="margin:0 0 8px;font-size:1.05rem">圖例</h2>
       <div class="legend">
-        <div><i class="dot" style="background:#c92a2a"></i>災情停電事件</div>
-        <div><i class="dot" style="background:#e99a28"></i>預定施工停電</div>
-        <div><i class="dot" style="background:#66758a"></i>無對應事件／資料不足</div>
+        <div><i class="dot" style="background:#e58d85"></i>災情停電事件</div>
+        <div><i class="dot" style="background:#f0c66d"></i>預定施工停電</div>
+        <div><i class="dot" style="background:#e4eaed"></i>無對應事件／資料不足</div>
       </div>
       <p class="muted">灰色不代表正常供電，只表示目前資料未對應到該行政區。</p>
     </div>
@@ -83,9 +83,9 @@
 (() => {
   const taiwanBounds = L.latLngBounds([[21.7,119.2],[25.75,122.15]]);
   const map = L.map('map', {maxBounds:taiwanBounds.pad(0.035), maxBoundsViscosity:1, minZoom:6, zoomControl:true});
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 18, attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
+  // Custom Taiwan-only vector map: no raster basemap.
+    
+  
   map.fitBounds(taiwanBounds, {padding:[8,8]});
   map.setMinZoom(map.getZoom());
   map.on('resize', () => { const min=map.getBoundsZoom(taiwanBounds); map.setMinZoom(min); if(map.getZoom()<min) map.setZoom(min); });
@@ -144,9 +144,9 @@
   }
   function isVisible(e) {
     if(!(currentMode === 'both' || e.type === currentMode)) return false;
-    if(e.type !== 'planned') return true;
+    if(e.type === 'planned') {
     const end=scheduledEnd(e);
-    if(end && end.getTime() < Date.now()) return false;
+    if(end && end.getTime() < Date.now()) return false; }
     if(searchQuery) {
       const haystack=norm([e.county,e.town,e.title,e.area,e.start,e.end,e.type==='planned'?'施工停電':'災情停電'].join(' '));
       if(!haystack.includes(searchQuery)) return false;
@@ -170,8 +170,8 @@
     const p=propsOf(feature), c=countyOf(p), t=townOf(p);
     const ev=getEventsFor(c,t);
     const emergency=ev.some(e=>e.type==='emergency'), planned=ev.some(e=>e.type==='planned');
-    const fill=emergency&&planned?'#8f3f35':emergency?'#c92a2a':planned?'#e99a28':'#66758a';
-    return {color:'#f0f4f8',weight:level==='town'?0.65:1.2,opacity:.9,fillColor:fill,fillOpacity:ev.length ? 0.72 : 0.22};
+    const fill=emergency&&planned?'#b9a4cc':emergency?'#e58d85':planned?'#f0c66d':'#f8fafb';
+    return {color:'#c8d4da',weight:level==='town'?0.35:1.5,opacity:.92,fillColor:fill,fillOpacity:ev.length ? .58 : 1};
   }
   function popupHtml(feature, level) {
     const p=propsOf(feature), c=countyOf(p), t=townOf(p);
@@ -185,9 +185,9 @@
     if (countyLayer) map.removeLayer(countyLayer);
     if (townLayer) map.removeLayer(townLayer);
     if (counties) countyLayer=L.geoJSON(counties,{style:f=>styleFeature(f,'county'),onEachFeature:(f,l)=>l.bindPopup(popupHtml(f,'county'))}).addTo(map);
-    if (towns) townLayer=L.geoJSON(towns,{style:f=>styleFeature(f,'town'),onEachFeature:(f,l)=>l.bindPopup(popupHtml(f,'town'))}).addTo(map);
+    if (towns && map.getZoom()>=8) townLayer=L.geoJSON(towns,{style:f=>styleFeature(f,'town'),onEachFeature:(f,l)=>l.bindPopup(popupHtml(f,'town'))}).addTo(map);
   }
-  function renderSummary() {
+  map.on('zoomend',redraw); function renderSummary() {
     const events=(dataset?.events||[]).filter(isVisible);
     const townsSet=new Set(), countiesSet=new Set();
     let households=0, hasHouseholds=false;

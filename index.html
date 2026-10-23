@@ -13,7 +13,7 @@
     h1{font-size:clamp(1.4rem,3vw,2rem);margin:0 0 5px}p{margin:5px 0}.muted{color:var(--muted);font-size:.9rem}
     main{max-width:1500px;margin:auto;padding:16px;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px}
     .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-    #map{height:min(74vh,850px);min-height:440px;background:#dbe4ec}
+    #map{height:min(74vh,850px);min-height:440px;background:#e5e7eb}.leaflet-tile-pane img{filter:grayscale(100%) contrast(.92) brightness(1.03)}
     .map-top{padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
     .controls{display:flex;gap:8px;flex-wrap:wrap}
     button,select,input{background:#1b2a40;color:var(--text);border:1px solid #3b4b63;border-radius:8px;padding:9px 11px;font:inherit}input::placeholder{color:#a9b7cb}input:focus{outline:2px solid var(--accent);outline-offset:1px}
@@ -83,8 +83,8 @@
 (() => {
   const taiwanBounds = L.latLngBounds([[21.7,119.2],[25.75,122.15]]);
   const map = L.map('map', {maxBounds:taiwanBounds.pad(0.035), maxBoundsViscosity:1, minZoom:6, zoomControl:true});
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 18, attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18, attribution: '&copy; OpenStreetMap contributors'
   }).addTo(map);
   map.fitBounds(taiwanBounds, {padding:[8,8]});
   map.setMinZoom(map.getZoom());

@@ -117,7 +117,29 @@
   function townOf(p) {
     return getProp(p,['TOWNNAME','TOWN','鄉鎮市區名稱','鄉鎮市區','行政區','town','TownName','NAME_2','name']);
   }
-  function isVisible(e) { return currentMode === 'both' || e.type === currentMode; }
+  function scheduledEnd(e) {
+    const startText=String(e.start||'');
+    const date=startText.match(/(20\d{2})[/-](\d{1,2})[/-](\d{1,2})/);
+    if(!date) return null;
+    const y=Number(date[1]), m=Number(date[2])-1, d=Number(date[3]);
+    const endText=String(e.end||'');
+    const explicitEnd=endText.match(/(20\d{2})[/-](\d{1,2})[/-](\d{1,2}).*?(\d{1,2}):(\d{2})/);
+    if(explicitEnd) return new Date(Number(explicitEnd[1]),Number(explicitEnd[2])-1,Number(explicitEnd[3]),Number(explicitEnd[4]),Number(explicitEnd[5]));
+    const times=[...startText.matchAll(/(\d{1,2}):(\d{2})/g)];
+    if(times.length>=2) {
+      const start=new Date(y,m,d,Number(times[0][1]),Number(times[0][2]));
+      const end=new Date(y,m,d,Number(times[1][1]),Number(times[1][2]));
+      if(end<start) end.setDate(end.getDate()+1);
+      return end;
+    }
+    return new Date(y,m,d,23,59,59);
+  }
+  function isVisible(e) {
+    if(!(currentMode === 'both' || e.type === currentMode)) return false;
+    if(e.type !== 'planned') return true;
+    const end=scheduledEnd(e);
+    return !end || end.getTime() >= Date.now();
+  }
   function getEventsFor(c,t) {
     const cn=norm(c), tn=norm(t);
     const candidates=[...(visibleByCounty.get(cn)||[]), ...unassignedEvents];

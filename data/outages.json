@@ -1,0 +1,11 @@
+{
+  "generated_at": null,
+  "source": "Taipower official open data",
+  "events": [],
+  "warnings": [
+    "尚未執行第一次資料更新。請在 GitHub Actions 手動執行 Update Taiwan outage data。"
+  ],
+  "notes": [
+    "空事件清單不代表全台正常供電。"
+  ]
+}

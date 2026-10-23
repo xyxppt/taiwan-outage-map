@@ -89,6 +89,294 @@
   map.fitBounds(taiwanBounds, {padding:[8,8]});
   map.setMinZoom(map.getZoom());
   map.on('resize', () => { const min=map.getBoundsZoom(taiwanBounds); map.setMinZoom(min); if(map.getZoom()<min) map.setZoom(min); });
+  const outsideTaiwanPane=map.createPane('outsideTaiwanMask');
+  outsideTaiwanPane.style.zIndex=350;
+  outsideTaiwanPane.style.pointerEvents='none';
+
+  const DATA_URL = './data/outages.json';
+  // 以可公開取得的台灣行政區 GeoJSON 作為底圖；若上游格式或網址變動，地圖仍會顯示事件清單。
+  const COUNTY_URL = 'https://raw.githubusercontent.com/ronnywang/twgeojson/master/twcounty2010.2.json';
+  const TOWN_URL = 'https://raw.githubusercontent.com/ronnywang/twgeojson/master/twtown2010.2.json';
+  let currentMode = 'emergency', dataset = null, countyLayer = null, townLayer = null;
+  let counties = null, towns = null, searchQuery = '', outsideTaiwanMask = null;
+  let visibleByCounty = new Map(), unassignedEvents = [];
+  let locationWatchId = null, locationMarker = null, accuracyCircle = null, locationLocked = false;
+
+  const norm = v => String(v ?? '').replace(/台/g,'臺').replace(/\s/g,'').replace(/縣市$/,'').replace(/(縣|市)$/,'');
+  function rebuildEventIndex() {
+    visibleByCounty = new Map();
+    unassignedEvents = [];
+    for (const e of dataset?.events || []) {
+      if (!isVisible(e)) continue;
+      const key = norm(e.county);
+      if (!key) { unassignedEvents.push(e); continue; }
+      if (!visibleByCounty.has(key)) visibleByCounty.set(key, []);
+      visibleByCounty.get(key).push(e);
+    }
+  }
+  const propsOf = f => f.properties || {};
+  function getProp(p, keys) {
+    for (const k of keys) if (p[k] !== undefined && p[k] !== null && String(p[k]).trim()) return String(p[k]).trim();
+    return '';
+  }
+  function countyOf(p) {
+    return getProp(p,['COUNTYNAME','COUNTY','縣市名稱','縣市','county','CountyName','NAME_1','name']);
+  }
+  function townOf(p) {
+    return getProp(p,['TOWNNAME','TOWN','鄉鎮市區名稱','鄉鎮市區','行政區','town','TownName','NAME_2','name']);
+  }
+  function scheduledEnd(e) {
+    const startText=String(e.start||'');
+    const date=startText.match(/(20\d{2})[/-](\d{1,2})[/-](\d{1,2})/);
+    if(!date) return null;
+    const y=Number(date[1]), m=Number(date[2])-1, d=Number(date[3]);
+    const endText=String(e.end||'');
+    const explicitEnd=endText.match(/(20\d{2})[/-](\d{1,2})[/-](\d{1,2}).*?(\d{1,2}):(\d{2})/);
+    if(explicitEnd) return new Date(Number(explicitEnd[1]),Number(explicitEnd[2])-1,Number(explicitEnd[3]),Number(explicitEnd[4]),Number(explicitEnd[5]));
+    const times=[...startText.matchAll(/(\d{1,2}):(\d{2})/g)];
+    if(times.length>=2) {
+      const start=new Date(y,m,d,Number(times[0][1]),Number(times[0][2]));
+      const end=new Date(y,m,d,Number(times[1][1]),Number(times[1][2]));
+      if(end<start) end.setDate(end.getDate()+1);
+      return end;
+    }
+    return new Date(y,m,d,23,59,59);
+  }
+  function isVisible(e) {
+    if(!(currentMode === 'both' || e.type === currentMode)) return false;
+    if(e.type !== 'planned') return true;
+    const end=scheduledEnd(e);
+    if(end && end.getTime() < Date.now()) return false;
+    if(searchQuery) {
+      const haystack=norm([e.county,e.town,e.title,e.area,e.start,e.end,e.type==='planned'?'施工停電':'災情停電'].join(' '));
+      if(!haystack.includes(searchQuery)) return false;
+    }
+    return true;
+  }
+  function getEventsFor(c,t) {
+    const cn=norm(c), tn=norm(t);
+    const candidates=[...(visibleByCounty.get(cn)||[]), ...unassignedEvents];
+    return candidates.filter(e => {
+      const ec=norm(e.county), et=norm(e.town), area=norm(e.area);
+      const countyMatch = !ec || !cn || ec === cn;
+      if (!countyMatch) return false;
+      if (!tn) return true;
+      if (et) return et === tn;
+      const fullTown=norm(c+' '+t);
+      return !!area && (area.includes(fullTown) || area.includes(tn));
+    });
+  }
+  function styleFeature(feature, level) {
+    const p=propsOf(feature), c=countyOf(p), t=townOf(p);
+    const ev=getEventsFor(c,t);
+    const emergency=ev.some(e=>e.type==='emergency'), planned=ev.some(e=>e.type==='planned');
+    const fill=emergency&&planned?'#8f3f35':emergency?'#c92a2a':planned?'#e99a28':'#66758a';
+    return {color:'#f0f4f8',weight:level==='town'?0.65:1.2,opacity:.9,fillColor:fill,fillOpacity:ev.length ? 0.72 : 0.22};
+  }
+  function popupHtml(feature, level) {
+    const p=propsOf(feature), c=countyOf(p), t=townOf(p);
+    const ev=getEventsFor(c,t);
+    const title=level==='town'?(c+' '+t):(c||'行政區');
+    if (!ev.length) return `<strong>${escapeHtml(title)}</strong><br>目前資料沒有對應事件。<br><small>不代表一定正常供電。</small>`;
+    return `<strong>${escapeHtml(title)}</strong><br>${ev.map(e=>`<hr><b>${e.type==='planned'?'預定施工停電':'災情停電'}</b><br>${escapeHtml(e.title||e.area||'未提供事件名稱')}<br>${e.households!=null?'影響戶數：'+e.households+' 戶<br>':''}${e.start?'時間：'+escapeHtml(e.start)+'<br>':''}${e.end?'預計結束／復電：'+escapeHtml(e.end)+'<br>':''}${e.area?'範圍：'+escapeHtml(e.area):''}`).join('')}`;
+  }
+  function escapeHtml(s) { return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function redraw() {
+    if (countyLayer) map.removeLayer(countyLayer);
+    if (townLayer) map.removeLayer(townLayer);
+    if (counties) countyLayer=L.geoJSON(counties,{style:f=>styleFeature(f,'county'),onEachFeature:(f,l)=>l.bindPopup(popupHtml(f,'county'))}).addTo(map);
+    if (towns) townLayer=L.geoJSON(towns,{style:f=>styleFeature(f,'town'),onEachFeature:(f,l)=>l.bindPopup(popupHtml(f,'town'))}).addTo(map);
+  }
+  function renderSummary() {
+    const events=(dataset?.events||[]).filter(isVisible);
+    const townsSet=new Set(), countiesSet=new Set();
+    let households=0, hasHouseholds=false;
+    events.forEach(e=>{if(e.county)countiesSet.add(e.county);if(e.town)townsSet.add(e.county+' '+e.town);if(Number.isFinite(Number(e.households))){households+=Number(e.households);hasHouseholds=true;}});
+    document.querySelector('#active-count').textContent=events.length;
+    document.querySelector('#house-count').textContent=hasHouseholds?households.toLocaleString('zh-TW'):'—';
+    document.querySelector('#county-count').textContent=countiesSet.size||'—';
+    document.querySelector('#town-count').textContent=townsSet.size||'—';
+    const status=document.querySelector('#status');
+    const updated=dataset?.generated_at ? new Date(dataset.generated_at).toLocaleString('zh-TW') : '未知';
+    const warnings=dataset?.warnings||[];
+    status.className='status '+(warnings.length?'warn':'good');
+    status.textContent=`資料產生時間：${updated}。${warnings.length?'部分來源未能完整取得：'+warnings.join('；'):'已讀取資料檔。請留意官方來源更新頻率。'}`;
+    const list=document.querySelector('#events');
+    list.innerHTML=events.length?events.slice(0,80).map(e=>`<article class="event"><strong>${e.type==='planned'?'🟠 預定施工停電':'🔴 災情停電'}｜${escapeHtml(e.county||'縣市未明')}${e.town?' '+escapeHtml(e.town):''}</strong>${escapeHtml(e.title||e.area||'未提供事件名稱')}<br>${e.start?'時間：'+escapeHtml(e.start)+'<br>':''}${e.end?'預計結束／復電：'+escapeHtml(e.end)+'<br>':''}${e.households!=null?'影響戶數：'+Number(e.households).toLocaleString('zh-TW')+' 戶<br>':''}${e.area?'範圍：'+escapeHtml(e.area):''}</article>`).join(''):'<p class="muted">目前資料檔沒有可顯示的事件。這不代表全台沒有停電。</p>';
+  }
+  async function loadData() {
+    const status=document.querySelector('#status'); status.className='status'; status.textContent='正在讀取官方資料快照…';
+    try {
+      const r=await fetch(DATA_URL+'?v='+Date.now(),{cache:'no-store'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      dataset=await r.json(); rebuildEventIndex(); renderSummary(); redraw();
+    } catch(e) {
+      status.className='status warn';status.textContent='無法讀取資料檔。請稍後重試。';
+    }
+  }
+  function maskOutsideTaiwan() {
+    if(outsideTaiwanMask) map.removeLayer(outsideTaiwanMask);
+    const outerRing=[[30,115],[30,125],[18,125],[18,115]];
+    const countyHoles=[];
+    for(const feature of counties?.features||[]) {
+      const geometry=feature.geometry;
+      const polygons=geometry?.type==='Polygon'?[geometry.coordinates]:geometry?.type==='MultiPolygon'?geometry.coordinates:[];
+      for(const polygon of polygons) {
+        if(polygon?.[0]?.length) countyHoles.push(polygon[0].map(([lng,lat])=>[lat,lng]));
+      }
+    }
+    outsideTaiwanMask=L.polygon([outerRing,...countyHoles],{pane:'outsideTaiwanMask',stroke:false,fillColor:'#e5e7eb',fillOpacity:1,fillRule:'evenodd',interactive:false}).addTo(map);
+  }
+  async function loadGeo() {
+    const status=document.querySelector('#status');
+    try {
+      const [c,t]=await Promise.all([fetch(COUNTY_URL),fetch(TOWN_URL)]);
+      if(!c.ok||!t.ok) throw new Error('GeoJSON 下載失敗');
+      counties=await c.json();towns=await t.json();maskOutsideTaiwan();redraw();
+    } catch(e) {
+      status.className='status warn';status.textContent='行政區地圖資料載入失敗；事件清單仍可使用。請檢查 GeoJSON 網址或網路連線。';
+    }
+  }
+  function setMode(mode) {
+    currentMode=mode;
+    rebuildEventIndex();
+    document.querySelectorAll('.controls button').forEach(b=>b.classList.toggle('active',b.id==='btn-'+mode));
+    renderSummary();redraw();
+  }
+  function setLocationButton() {
+    const button=document.querySelector('#location-toggle');
+    button.textContent=locationLocked?'停止位置鎖定':'鎖定我的位置';
+    button.classList.toggle('active',locationLocked);
+    button.setAttribute('aria-pressed',String(locationLocked));
+  }
+  function stopLocationLock() {
+    if(locationWatchId!==null) navigator.geolocation.clearWatch(locationWatchId);
+    locationWatchId=null; locationLocked=false; setLocationButton();
+  }
+  function startLocationLock() {
+    const status=document.querySelector('#location-status');
+    if(!navigator.geolocation) { status.textContent='此瀏覽器不支援定位；目前顯示台灣全圖。'; return; }
+    locationLocked=true; setLocationButton(); status.textContent='正在取得目前位置…請在瀏覽器提示中允許定位。';
+    locationWatchId=navigator.geolocation.watchPosition(position=>{
+      const point=L.latLng(position.coords.latitude,position.coords.longitude);
+      if(!taiwanBounds.contains(point)) { status.textContent='目前位置不在台灣地圖範圍內；地圖維持台灣全圖。'; stopLocationLock(); return; }
+      if(!locationMarker) locationMarker=L.circleMarker(point,{radius:8,color:'#fff',weight:3,fillColor:'#1677ff',fillOpacity:1}).addTo(map);
+      else locationMarker.setLatLng(point);
+      const radius=Math.max(30,position.coords.accuracy||0);
+      if(!accuracyCircle) accuracyCircle=L.circle(point,{radius,color:'#1677ff',weight:1,fillColor:'#1677ff',fillOpacity:.12}).addTo(map);
+      else accuracyCircle.setLatLng(point).setRadius(radius);
+      map.setView(point,Math.max(map.getZoom(),12),{animate:true});
+      status.textContent=`已鎖定目前位置，定位精度約 ${Math.round(position.coords.accuracy||0)} 公尺。`;
+    },error=>{
+      stopLocationLock();
+      status.textContent=error.code===1?'定位未獲允許；可在瀏覽器網站設定允許定位，再按「鎖定我的位置」。目前顯示台灣全圖。':'目前無法取得位置；可稍後重試。目前顯示台灣全圖。';
+    },{enableHighAccuracy:true,maximumAge:30000,timeout:20000});
+  }
+  document.querySelector('#location-toggle').addEventListener('click',()=>locationLocked?stopLocationLock():startLocationLock());
+  document.querySelector('#event-search').addEventListener('input',event=>{
+    searchQuery=norm(event.target.value);
+    rebuildEventIndex(); renderSummary(); redraw();
+  });
+  document.querySelector('#btn-emergency').addEventListener('click',()=>setMode('emergency'));
+  document.querySelector('#btn-planned').addEventListener('click',()=>setMode('planned'));
+  document.querySelector('#btn-both').addEventListener('click',()=>setMode('both'));
+  document.querySelector('#refresh').addEventListener('click',loadData);
+  loadData();loadGeo();startLocationLock();
+})();
+</script>
+</body>
+</html>
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101827">
+  <title>台灣停電地圖｜官方資料整合</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <style>
+    :root{color-scheme:dark;--bg:#0b1220;--panel:#131e30;--line:#2a3850;--text:#edf3fc;--muted:#a9b7cb;--accent:#57c7b6}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Noto Sans TC",sans-serif}
+    header{padding:20px clamp(16px,3vw,34px);border-bottom:1px solid var(--line);background:#101827}
+    h1{font-size:clamp(1.4rem,3vw,2rem);margin:0 0 5px}p{margin:5px 0}.muted{color:var(--muted);font-size:.9rem}
+    main{max-width:1500px;margin:auto;padding:16px;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px}
+    .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+    #map{height:min(74vh,850px);min-height:440px;background:#e5e7eb}.leaflet-tile-pane img{filter:grayscale(100%) contrast(.92) brightness(1.03)}
+    .map-top{padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    button,select,input{background:#1b2a40;color:var(--text);border:1px solid #3b4b63;border-radius:8px;padding:9px 11px;font:inherit}input::placeholder{color:#a9b7cb}input:focus{outline:2px solid var(--accent);outline-offset:1px}
+    button{cursor:pointer}button.active{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+    aside{padding:16px;display:flex;flex-direction:column;gap:14px}
+    .statgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.stat{padding:12px;border-radius:10px;background:#1a2940}
+    .stat strong{display:block;font-size:1.45rem}.stat span{font-size:.82rem;color:var(--muted)}
+    .status{padding:10px 12px;border-radius:9px;background:#202f45;border:1px solid #354860;font-size:.9rem}
+    .status.warn{border-color:#d69b43;color:#ffe0a6}.status.good{border-color:#3d9f88;color:#b8f5e6}
+    .legend{display:grid;gap:8px;font-size:.9rem}.dot{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:7px}
+    #event-search{width:100%;margin:0 0 9px;background:#f5f6f7;color:#26313d;border-color:#cbd1d8}#event-search::placeholder{color:#687583}#events{display:grid;gap:8px;max-height:42vh;overflow:auto}.event{padding:10px;border:1px solid var(--line);border-radius:9px;font-size:.9rem}#location-status{padding:8px 14px;color:var(--muted);font-size:.85rem;border-bottom:1px solid var(--line)}.event strong{display:block;margin-bottom:3px}
+    .source a{color:#90d9ff}.source{font-size:.86rem;color:var(--muted)}footer{padding:0 16px 22px;max-width:1500px;margin:auto;color:var(--muted);font-size:.82rem}
+    @media(max-width:900px){main{grid-template-columns:1fr}#map{height:60vh;min-height:380px}#events{max-height:34vh}}
+  </style>
+</head>
+<body>
+<header>
+  <h1>台灣停電地圖</h1>
+  <p class="muted">整合台電公開資料｜突發災情與預定施工停電分開顯示</p>
+</header>
+<main>
+  <section class="panel">
+    <div class="map-top">
+      <div class="controls" aria-label="地圖圖層">
+        <button id="btn-emergency" class="active" type="button">災情停電</button>
+        <button id="btn-planned" type="button">施工停電</button>
+        <button id="btn-both" type="button">全部事件</button>
+      </div>
+      <div class="controls"><button id="location-toggle" type="button" aria-pressed="false">鎖定我的位置</button><button id="refresh" type="button">重新讀取資料</button></div>
+    </div>
+    <div id="map" role="application" aria-label="台灣停電互動地圖"></div><div id="location-status" role="status" aria-live="polite">正在取得目前位置…</div>
+  </section>
+  <aside class="panel">
+    <div>
+      <h2 style="margin:0 0 8px;font-size:1.15rem">資料概況</h2>
+      <div id="status" class="status">正在讀取資料…</div>
+    </div>
+    <div class="statgrid">
+      <div class="stat"><strong id="active-count">—</strong><span>已取得事件</span></div>
+      <div class="stat"><strong id="house-count">—</strong><span>已知影響戶數</span></div>
+      <div class="stat"><strong id="county-count">—</strong><span>涉及縣市</span></div>
+      <div class="stat"><strong id="town-count">—</strong><span>涉及鄉鎮市區</span></div>
+    </div>
+    <div>
+      <h2 style="margin:0 0 8px;font-size:1.05rem">圖例</h2>
+      <div class="legend">
+        <div><i class="dot" style="background:#c92a2a"></i>災情停電事件</div>
+        <div><i class="dot" style="background:#e99a28"></i>預定施工停電</div>
+        <div><i class="dot" style="background:#66758a"></i>無對應事件／資料不足</div>
+      </div>
+      <p class="muted">灰色不代表正常供電，只表示目前資料未對應到該行政區。</p>
+    </div>
+    <div>
+      <h2 style="margin:0 0 8px;font-size:1.05rem">事件清單</h2>
+      <label for="event-search" class="muted">搜尋停電地區或事件關鍵字</label><input id="event-search" type="search" placeholder="例如：臺北市、大安區、路名" autocomplete="off"><div id="events"><p class="muted">等待資料…</p></div>
+    </div>
+    <div class="source">
+      <strong>資料來源</strong><br>
+      <a href="https://data.gov.tw/dataset/44799" target="_blank" rel="noopener">台電電力維生管線災情資訊</a><br>
+      <a href="https://data.gov.tw/dataset/26144" target="_blank" rel="noopener">台電計畫性工作停電資料</a>
+    </div>
+  </aside>
+</main>
+<footer>注意：本網站為非官方視覺化工具。資料更新頻率與涵蓋範圍依台電公告為準；如需確認住家是否停電，請以台電官方查詢或 1911 為準。</footer>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+(() => {
+  const taiwanBounds = L.latLngBounds([[21.7,119.2],[25.75,122.15]]);
+  const map = L.map('map', {maxBounds:taiwanBounds.pad(0.035), maxBoundsViscosity:1, minZoom:6, zoomControl:true});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18, attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+  map.fitBounds(taiwanBounds, {padding:[8,8]});
+  map.setMinZoom(map.getZoom());
+  map.on('resize', () => { const min=map.getBoundsZoom(taiwanBounds); map.setMinZoom(min); if(map.getZoom()<min) map.setZoom(min); });
 
   const DATA_URL = './data/outages.json';
   // 以可公開取得的台灣行政區 GeoJSON 作為底圖；若上游格式或網址變動，地圖仍會顯示事件清單。

@@ -92,8 +92,20 @@
   const TOWN_URL = 'https://raw.githubusercontent.com/ronnywang/twgeojson/master/twtown2010.2.json';
   let currentMode = 'emergency', dataset = null, countyLayer = null, townLayer = null;
   let counties = null, towns = null;
+  let visibleByCounty = new Map(), unassignedEvents = [];
 
   const norm = v => String(v ?? '').replace(/台/g,'臺').replace(/\s/g,'').replace(/縣市$/,'').replace(/(縣|市)$/,'');
+  function rebuildEventIndex() {
+    visibleByCounty = new Map();
+    unassignedEvents = [];
+    for (const e of dataset?.events || []) {
+      if (!isVisible(e)) continue;
+      const key = norm(e.county);
+      if (!key) { unassignedEvents.push(e); continue; }
+      if (!visibleByCounty.has(key)) visibleByCounty.set(key, []);
+      visibleByCounty.get(key).push(e);
+    }
+  }
   const propsOf = f => f.properties || {};
   function getProp(p, keys) {
     for (const k of keys) if (p[k] !== undefined && p[k] !== null && String(p[k]).trim()) return String(p[k]).trim();
@@ -108,13 +120,15 @@
   function isVisible(e) { return currentMode === 'both' || e.type === currentMode; }
   function getEventsFor(c,t) {
     const cn=norm(c), tn=norm(t);
-    return (dataset?.events || []).filter(e => {
-      if (!isVisible(e)) return false;
+    const candidates=[...(visibleByCounty.get(cn)||[]), ...unassignedEvents];
+    return candidates.filter(e => {
       const ec=norm(e.county), et=norm(e.town), area=norm(e.area);
-      const countyMatch = !ec || !cn || ec.includes(cn) || cn.includes(ec);
-      const townMatch = !et || !tn || et.includes(tn) || tn.includes(et);
-      const areaMatch = area && (area.includes(tn) || area.includes(cn) || area.includes(norm(c+' '+t)));
-      return (countyMatch && townMatch && (et || !tn)) || areaMatch;
+      const countyMatch = !ec || !cn || ec === cn;
+      if (!countyMatch) return false;
+      if (!tn) return true;
+      if (et) return et === tn;
+      const fullTown=norm(c+' '+t);
+      return !!area && (area.includes(fullTown) || area.includes(tn));
     });
   }
   function styleFeature(feature, level) {
@@ -160,7 +174,7 @@
     try {
       const r=await fetch(DATA_URL+'?v='+Date.now(),{cache:'no-store'});
       if(!r.ok) throw new Error('HTTP '+r.status);
-      dataset=await r.json(); renderSummary(); redraw();
+      dataset=await r.json(); rebuildEventIndex(); renderSummary(); redraw();
     } catch(e) {
       status.className='status warn';status.textContent='無法讀取資料檔。請稍後重試。';
     }
@@ -177,6 +191,7 @@
   }
   function setMode(mode) {
     currentMode=mode;
+    rebuildEventIndex();
     document.querySelectorAll('.controls button').forEach(b=>b.classList.toggle('active',b.id==='btn-'+mode));
     renderSummary();redraw();
   }

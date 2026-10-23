@@ -16,7 +16,7 @@
     #map{height:min(74vh,850px);min-height:440px;background:#dbe4ec}
     .map-top{padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
     .controls{display:flex;gap:8px;flex-wrap:wrap}
-    button,select{background:#1b2a40;color:var(--text);border:1px solid #3b4b63;border-radius:8px;padding:9px 11px;font:inherit}
+    button,select,input{background:#1b2a40;color:var(--text);border:1px solid #3b4b63;border-radius:8px;padding:9px 11px;font:inherit}input::placeholder{color:#a9b7cb}input:focus{outline:2px solid var(--accent);outline-offset:1px}
     button{cursor:pointer}button.active{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
     aside{padding:16px;display:flex;flex-direction:column;gap:14px}
     .statgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.stat{padding:12px;border-radius:10px;background:#1a2940}
@@ -24,7 +24,7 @@
     .status{padding:10px 12px;border-radius:9px;background:#202f45;border:1px solid #354860;font-size:.9rem}
     .status.warn{border-color:#d69b43;color:#ffe0a6}.status.good{border-color:#3d9f88;color:#b8f5e6}
     .legend{display:grid;gap:8px;font-size:.9rem}.dot{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:7px}
-    #events{display:grid;gap:8px;max-height:42vh;overflow:auto}.event{padding:10px;border:1px solid var(--line);border-radius:9px;font-size:.9rem}.event strong{display:block;margin-bottom:3px}
+    #event-search{width:100%;margin:0 0 9px;background:#f5f6f7;color:#26313d;border-color:#cbd1d8}#event-search::placeholder{color:#687583}#events{display:grid;gap:8px;max-height:42vh;overflow:auto}.event{padding:10px;border:1px solid var(--line);border-radius:9px;font-size:.9rem}#location-status{padding:8px 14px;color:var(--muted);font-size:.85rem;border-bottom:1px solid var(--line)}.event strong{display:block;margin-bottom:3px}
     .source a{color:#90d9ff}.source{font-size:.86rem;color:var(--muted)}footer{padding:0 16px 22px;max-width:1500px;margin:auto;color:var(--muted);font-size:.82rem}
     @media(max-width:900px){main{grid-template-columns:1fr}#map{height:60vh;min-height:380px}#events{max-height:34vh}}
   </style>
@@ -42,9 +42,9 @@
         <button id="btn-planned" type="button">施工停電</button>
         <button id="btn-both" type="button">全部事件</button>
       </div>
-      <button id="refresh" type="button">重新讀取資料</button>
+      <div class="controls"><button id="location-toggle" type="button" aria-pressed="false">鎖定我的位置</button><button id="refresh" type="button">重新讀取資料</button></div>
     </div>
-    <div id="map" role="application" aria-label="台灣停電互動地圖"></div>
+    <div id="map" role="application" aria-label="台灣停電互動地圖"></div><div id="location-status" role="status" aria-live="polite">正在取得目前位置…</div>
   </section>
   <aside class="panel">
     <div>
@@ -68,7 +68,7 @@
     </div>
     <div>
       <h2 style="margin:0 0 8px;font-size:1.05rem">事件清單</h2>
-      <div id="events"><p class="muted">等待資料…</p></div>
+      <label for="event-search" class="muted">搜尋停電地區或事件關鍵字</label><input id="event-search" type="search" placeholder="例如：臺北市、大安區、路名" autocomplete="off"><div id="events"><p class="muted">等待資料…</p></div>
     </div>
     <div class="source">
       <strong>資料來源</strong><br>
@@ -81,18 +81,23 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
 (() => {
-  const map = L.map('map').setView([23.7, 120.9], 7);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 18, attribution: '&copy; OpenStreetMap contributors'
+  const taiwanBounds = L.latLngBounds([[21.7,119.2],[25.75,122.15]]);
+  const map = L.map('map', {maxBounds:taiwanBounds.pad(0.035), maxBoundsViscosity:1, minZoom:6, zoomControl:true});
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 18, attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
   }).addTo(map);
+  map.fitBounds(taiwanBounds, {padding:[8,8]});
+  map.setMinZoom(map.getZoom());
+  map.on('resize', () => { const min=map.getBoundsZoom(taiwanBounds); map.setMinZoom(min); if(map.getZoom()<min) map.setZoom(min); });
 
   const DATA_URL = './data/outages.json';
   // 以可公開取得的台灣行政區 GeoJSON 作為底圖；若上游格式或網址變動，地圖仍會顯示事件清單。
   const COUNTY_URL = 'https://raw.githubusercontent.com/ronnywang/twgeojson/master/twcounty2010.2.json';
   const TOWN_URL = 'https://raw.githubusercontent.com/ronnywang/twgeojson/master/twtown2010.2.json';
   let currentMode = 'emergency', dataset = null, countyLayer = null, townLayer = null;
-  let counties = null, towns = null;
+  let counties = null, towns = null, searchQuery = '';
   let visibleByCounty = new Map(), unassignedEvents = [];
+  let locationWatchId = null, locationMarker = null, accuracyCircle = null, locationLocked = false;
 
   const norm = v => String(v ?? '').replace(/台/g,'臺').replace(/\s/g,'').replace(/縣市$/,'').replace(/(縣|市)$/,'');
   function rebuildEventIndex() {
@@ -138,7 +143,12 @@
     if(!(currentMode === 'both' || e.type === currentMode)) return false;
     if(e.type !== 'planned') return true;
     const end=scheduledEnd(e);
-    return !end || end.getTime() >= Date.now();
+    if(end && end.getTime() < Date.now()) return false;
+    if(searchQuery) {
+      const haystack=norm([e.county,e.town,e.title,e.area,e.start,e.end,e.type==='planned'?'施工停電':'災情停電'].join(' '));
+      if(!haystack.includes(searchQuery)) return false;
+    }
+    return true;
   }
   function getEventsFor(c,t) {
     const cn=norm(c), tn=norm(t);
@@ -217,11 +227,45 @@
     document.querySelectorAll('.controls button').forEach(b=>b.classList.toggle('active',b.id==='btn-'+mode));
     renderSummary();redraw();
   }
+  function setLocationButton() {
+    const button=document.querySelector('#location-toggle');
+    button.textContent=locationLocked?'停止位置鎖定':'鎖定我的位置';
+    button.classList.toggle('active',locationLocked);
+    button.setAttribute('aria-pressed',String(locationLocked));
+  }
+  function stopLocationLock() {
+    if(locationWatchId!==null) navigator.geolocation.clearWatch(locationWatchId);
+    locationWatchId=null; locationLocked=false; setLocationButton();
+  }
+  function startLocationLock() {
+    const status=document.querySelector('#location-status');
+    if(!navigator.geolocation) { status.textContent='此瀏覽器不支援定位；目前顯示台灣全圖。'; return; }
+    locationLocked=true; setLocationButton(); status.textContent='正在取得目前位置…請在瀏覽器提示中允許定位。';
+    locationWatchId=navigator.geolocation.watchPosition(position=>{
+      const point=L.latLng(position.coords.latitude,position.coords.longitude);
+      if(!taiwanBounds.contains(point)) { status.textContent='目前位置不在台灣地圖範圍內；地圖維持台灣全圖。'; stopLocationLock(); return; }
+      if(!locationMarker) locationMarker=L.circleMarker(point,{radius:8,color:'#fff',weight:3,fillColor:'#1677ff',fillOpacity:1}).addTo(map);
+      else locationMarker.setLatLng(point);
+      const radius=Math.max(30,position.coords.accuracy||0);
+      if(!accuracyCircle) accuracyCircle=L.circle(point,{radius,color:'#1677ff',weight:1,fillColor:'#1677ff',fillOpacity:.12}).addTo(map);
+      else accuracyCircle.setLatLng(point).setRadius(radius);
+      map.setView(point,Math.max(map.getZoom(),12),{animate:true});
+      status.textContent=`已鎖定目前位置，定位精度約 ${Math.round(position.coords.accuracy||0)} 公尺。`;
+    },error=>{
+      stopLocationLock();
+      status.textContent=error.code===1?'定位未獲允許；可在瀏覽器網站設定允許定位，再按「鎖定我的位置」。目前顯示台灣全圖。':'目前無法取得位置；可稍後重試。目前顯示台灣全圖。';
+    },{enableHighAccuracy:true,maximumAge:30000,timeout:20000});
+  }
+  document.querySelector('#location-toggle').addEventListener('click',()=>locationLocked?stopLocationLock():startLocationLock());
+  document.querySelector('#event-search').addEventListener('input',event=>{
+    searchQuery=norm(event.target.value);
+    rebuildEventIndex(); renderSummary(); redraw();
+  });
   document.querySelector('#btn-emergency').addEventListener('click',()=>setMode('emergency'));
   document.querySelector('#btn-planned').addEventListener('click',()=>setMode('planned'));
   document.querySelector('#btn-both').addEventListener('click',()=>setMode('both'));
   document.querySelector('#refresh').addEventListener('click',loadData);
-  loadData();loadGeo();
+  loadData();loadGeo();startLocationLock();
 })();
 </script>
 </body>

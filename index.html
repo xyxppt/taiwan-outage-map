@@ -21,7 +21,7 @@
     aside{padding:16px;display:flex;flex-direction:column;gap:14px}
     .statgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.stat{padding:12px;border-radius:10px;background:#1c2933}
     .stat strong{display:block;font-size:1.45rem}.stat span{font-size:.82rem;color:var(--muted)}
-    .status{padding:10px 12px;border-radius:9px;background:#1c2933;border:1px solid #e3e9ed;font-size:.9rem}
+    .status{padding:10px 12px;border-radius:9px;background:#1c2933;border:1px solid var(--line);font-size:.9rem}
     .status.warn{background:#3b3020;border-color:#806b42;color:#f1d69f}.status.good{background:#1c3934;border-color:#3a7a6c;color:#bbe3d8}
     .legend{display:grid;gap:8px;font-size:.9rem}.dot{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:7px}
     #event-search{width:100%;margin:0 0 9px;background:#202d38;color:#e8eef2;border-color:#394b57}#event-search::placeholder{color:#a1afb8}#events{display:grid;gap:8px;max-height:42vh;overflow:auto}.event{padding:10px;border:1px solid var(--line);border-radius:9px;font-size:.9rem}#location-status{padding:8px 14px;color:var(--muted);font-size:.85rem;border-bottom:1px solid var(--line)}.event strong{display:block;margin-bottom:3px}
@@ -62,7 +62,7 @@
       <div class="legend">
         <div><i class="dot" style="background:#e58d85"></i>災情停電事件</div>
         <div><i class="dot" style="background:#f0c66d"></i>預定施工停電</div>
-        <div><i class="dot" style="background:#e4eaed"></i>無對應事件／資料不足</div>
+        <div><i class="dot" style="background:#52616a"></i>無對應事件／資料不足</div>
       </div>
       <p class="muted">灰色不代表正常供電，只表示目前資料未對應到該行政區。</p>
     </div>
@@ -171,7 +171,7 @@
     const ev=getEventsFor(c,t);
     const emergency=ev.some(e=>e.type==='emergency'), planned=ev.some(e=>e.type==='planned');
     const fill=emergency&&planned?'#b9a4cc':emergency?'#e58d85':planned?'#f0c66d':'#293842';
-    return {color:'#c8d4da',weight:level==='town'?0.3:1.1,opacity:level==='town'?.58:.9,fillColor:fill,fillOpacity:ev.length ? .32 : 1};
+    return {color:'#71818b',weight:level==='town'?0.3:1.1,opacity:level==='town'?.58:.9,fillColor:fill,fillOpacity:ev.length ? .32 : 1};
   }
   function popupHtml(feature, level) {
     const p=propsOf(feature), c=countyOf(p), t=townOf(p);
